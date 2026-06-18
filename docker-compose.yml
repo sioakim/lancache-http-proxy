@@ -1,0 +1,65 @@
+# lancache-http-proxy — a standard lancache (monolithic) deployment that routes
+# cache-MISS (first-time) downloads through an upstream HTTP forward proxy.
+#
+# 1. Copy .env.example to .env and edit it.
+# 2. Edit conf/squid.conf and set your parent proxy (cache_peer line).
+# 3. docker compose up -d
+#
+# See README.md for the full explanation and verification steps.
+
+services:
+  lancache:
+    image: lancachenet/monolithic:latest
+    container_name: lancache
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # DNS is provided by lancache-dns, which shares this container's network
+      # namespace — so its port is published here, on lancache.
+      - "53:53/udp"
+      - "53:53/tcp"
+    volumes:
+      - ${CACHE_ROOT:-./data}/cache:/data/cache
+      - ${CACHE_ROOT:-./data}/logs:/data/logs
+      # The one override that makes MISSes go through the relay (with fallback).
+      - ./conf/30_primary_proxy.conf:/etc/nginx/sites-available/upstream.conf.d/30_primary_proxy.conf:ro
+    environment:
+      - CACHE_DISK_SIZE=${CACHE_DISK_SIZE:-1000g}
+      - CACHE_MAX_AGE=${CACHE_MAX_AGE:-3650d}
+      - UPSTREAM_DNS=${UPSTREAM_DNS:-1.1.1.1 8.8.8.8}
+
+  lancache-dns:
+    image: lancachenet/lancache-dns:latest
+    container_name: lancache-dns
+    restart: unless-stopped
+    # Share lancache's netns so both answer on the same IP (cache 80/443, DNS 53).
+    network_mode: "service:lancache"
+    depends_on:
+      - lancache
+    environment:
+      - USE_GENERIC_CACHE=true
+      # The IP your clients will use as their DNS server / cache target.
+      - LANCACHE_IP=${LANCACHE_IP:?set LANCACHE_IP in .env (the host/LAN IP clients point at)}
+      - UPSTREAM_DNS=${UPSTREAM_DNS:-1.1.1.1 8.8.8.8}
+
+  # The relay: bridges lancache's nginx (origin-form) to your forward proxy
+  # (absolute-form). Listens on 127.0.0.1:3129 inside the shared netns.
+  proxy-relay:
+    image: ubuntu/squid:latest
+    container_name: lancache-proxy-relay
+    restart: unless-stopped
+    network_mode: "service:lancache"
+    depends_on:
+      - lancache
+    volumes:
+      - ./conf/squid.conf:/etc/squid/squid.conf:ro
+      - ./conf/healthcheck.sh:/healthcheck.sh:ro
+    # UNHEALTHY if the parent proxy stops serving (downloads still work via the
+    # nginx direct-fallback, but you'll see the degraded state).
+    healthcheck:
+      test: ["CMD", "bash", "/healthcheck.sh"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 20s
