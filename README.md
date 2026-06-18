@@ -50,11 +50,13 @@ Two small config files do the rest:
 
 | File | What it does |
 |---|---|
-| [`conf/squid.conf`](conf/squid.conf) | The relay: accel/vhost in, `cache_peer` parent out. **You edit the one `cache_peer` line** with your proxy. |
+| [`conf/squid.conf.template`](conf/squid.conf.template) | The relay: accel/vhost in, `cache_peer` parent out. **You don't edit this** — your proxy is filled in from `.env` at startup. |
 | [`conf/30_primary_proxy.conf`](conf/30_primary_proxy.conf) | Overrides lancache's upstream block to `proxy_pass` to the relay, **with automatic direct fallback** if the relay/proxy is down. |
 | [`conf/healthcheck.sh`](conf/healthcheck.sh) | Marks the relay container UNHEALTHY if the upstream proxy stops serving. |
 
 No custom image is built and lancache itself is unmodified — the override is a read-only bind-mount.
+
+> **Where do I put my proxy?** Just `UPSTREAM_PROXY_HOST` / `UPSTREAM_PROXY_PORT` in `.env`. That's the only place. It gets substituted into the relay config automatically — you never edit a config file.
 
 ---
 
@@ -77,14 +79,13 @@ No custom image is built and lancache itself is unmodified — the override is a
 git clone https://github.com/sioakim/lancache-http-proxy.git
 cd lancache-http-proxy
 
-# 1. Configure the cache + DNS
+# 1. Configure everything in one file (including your proxy)
 cp .env.example .env
-$EDITOR .env            # set LANCACHE_IP, CACHE_ROOT, CACHE_DISK_SIZE, UPSTREAM_DNS
+$EDITOR .env
+#   UPSTREAM_PROXY_HOST / UPSTREAM_PROXY_PORT  <- your forward proxy (required)
+#   LANCACHE_IP, CACHE_ROOT, CACHE_DISK_SIZE, UPSTREAM_DNS
 
-# 2. Set your upstream proxy (the cache_peer line)
-$EDITOR conf/squid.conf  # cache_peer YOUR_PROXY parent YOUR_PORT 0 no-query default
-
-# 3. Launch
+# 2. Launch
 docker compose up -d
 ```
 
@@ -142,15 +143,18 @@ Cache HITs (served from disk) never touch the upstream path at all.
 
 ## Configuration reference
 
-### Your upstream proxy — `conf/squid.conf`
+### Your upstream proxy — `.env`
 
-Edit the single `cache_peer` line:
+Set it in `.env` (the only place):
 
-```squid
-cache_peer proxy.example-isp.net parent 8080 0 no-query default
+```ini
+UPSTREAM_PROXY_HOST=proxy.example-isp.net
+UPSTREAM_PROXY_PORT=8080
 ```
 
-`proxy.example-isp.net` / `8080` = your proxy host/port. Leave the rest as-is.
+These are substituted into the relay's `cache_peer` line at container start
+(see [`conf/squid.conf.template`](conf/squid.conf.template)). After changing
+them, run `docker compose up -d` to apply.
 
 ### Scope to specific CDNs only (optional)
 

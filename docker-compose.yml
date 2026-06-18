@@ -1,9 +1,8 @@
 # lancache-http-proxy — a standard lancache (monolithic) deployment that routes
 # cache-MISS (first-time) downloads through an upstream HTTP forward proxy.
 #
-# 1. Copy .env.example to .env and edit it.
-# 2. Edit conf/squid.conf and set your parent proxy (cache_peer line).
-# 3. docker compose up -d
+# 1. Copy .env.example to .env and edit it (including UPSTREAM_PROXY_HOST/PORT).
+# 2. docker compose up -d
 #
 # See README.md for the full explanation and verification steps.
 
@@ -44,7 +43,9 @@ services:
       - UPSTREAM_DNS=${UPSTREAM_DNS:-1.1.1.1 8.8.8.8}
 
   # The relay: bridges lancache's nginx (origin-form) to your forward proxy
-  # (absolute-form). Listens on 127.0.0.1:3129 inside the shared netns.
+  # (absolute-form). Listens on 127.0.0.1:3129 inside the shared netns. Your
+  # proxy is set ONCE, in .env (UPSTREAM_PROXY_HOST/PORT) — it's substituted
+  # into the squid config at startup, so you never edit a config file.
   proxy-relay:
     image: ubuntu/squid:latest
     container_name: lancache-proxy-relay
@@ -52,9 +53,20 @@ services:
     network_mode: "service:lancache"
     depends_on:
       - lancache
+    environment:
+      - UPSTREAM_PROXY_HOST=${UPSTREAM_PROXY_HOST:?set UPSTREAM_PROXY_HOST in .env (your forward proxy host)}
+      - UPSTREAM_PROXY_PORT=${UPSTREAM_PROXY_PORT:-8080}
     volumes:
-      - ./conf/squid.conf:/etc/squid/squid.conf:ro
+      - ./conf/squid.conf.template:/squid.conf.template:ro
       - ./conf/healthcheck.sh:/healthcheck.sh:ro
+    # Fill the proxy into the config from .env, then start squid with it.
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        sed -e "s|__PROXY_HOST__|$$UPSTREAM_PROXY_HOST|g" \
+            -e "s|__PROXY_PORT__|$$UPSTREAM_PROXY_PORT|g" \
+            /squid.conf.template > /tmp/squid.conf
+        exec entrypoint.sh -f /tmp/squid.conf -NYC
     # UNHEALTHY if the parent proxy stops serving (downloads still work via the
     # nginx direct-fallback, but you'll see the degraded state).
     healthcheck:
