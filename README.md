@@ -26,26 +26,10 @@ The proxy reported a **cache MISS** on all three — so that ~4× gain was pure 
 
 ## How it works
 
-```
- Game client (its DNS = lancache)
-        │  GET /game/chunk   Host: cdn.example   (HTTP, port 80)
-        ▼
- ┌─────────────────────────────── lancache (monolithic) ──────────────────────────────┐
- │                                                                                     │
- │   cache HIT  ───────────────────────────────►  served from disk (LAN speed)         │
- │                                                                                     │
- │   cache MISS                                                                         │
- │      │  proxy_pass 127.0.0.1:3129   (origin-form: "GET /game/chunk", Host: cdn)      │
- │      ▼                                                                               │
- │   proxy-relay  (Squid, accel/vhost mode)                                             │
- │      │  re-emits ABSOLUTE-form: "GET http://cdn.example/game/chunk"                  │
- │      ▼                                                                               │
- └──────┼──────────────────────────────────────────────────────────────────────────────┘
-        ▼
-   Your upstream HTTP proxy (e.g. ISP)  ──►  CDN
-        │
-        └─ if the relay or proxy is down: lancache falls back to fetching the CDN directly
-```
+<p align="center">
+  <img src="docs/how-it-works.svg" width="840"
+       alt="Request flow: a game client whose DNS points at lancache makes an HTTP request. On a cache HIT it is served from disk at LAN speed. On a MISS, lancache proxy_passes the origin-form request to a local Squid relay (accel/vhost), which re-emits it as absolute-form to your upstream HTTP proxy and on to the CDN. If the relay or proxy is down, lancache fetches the CDN directly.">
+</p>
 
 ### The core problem this solves
 
