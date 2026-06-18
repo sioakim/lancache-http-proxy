@@ -22,7 +22,8 @@ services:
       - ${CACHE_ROOT:-./data}/cache:/data/cache
       - ${CACHE_ROOT:-./data}/logs:/data/logs
       # The one override that makes MISSes go through the relay (with fallback).
-      - ./conf/30_primary_proxy.conf:/etc/nginx/sites-available/upstream.conf.d/30_primary_proxy.conf:ro
+      # ':z' relabels the bind mount for SELinux hosts (no-op elsewhere).
+      - ./conf/30_primary_proxy.conf:/etc/nginx/sites-available/upstream.conf.d/30_primary_proxy.conf:ro,z
     environment:
       - CACHE_DISK_SIZE=${CACHE_DISK_SIZE:-1000g}
       - CACHE_MAX_AGE=${CACHE_MAX_AGE:-3650d}
@@ -56,15 +57,27 @@ services:
     environment:
       - UPSTREAM_PROXY_HOST=${UPSTREAM_PROXY_HOST:?set UPSTREAM_PROXY_HOST in .env (your forward proxy host)}
       - UPSTREAM_PROXY_PORT=${UPSTREAM_PROXY_PORT:-8080}
+      # Optional HTTP Basic credentials — leave blank unless your proxy needs them.
+      - UPSTREAM_PROXY_USER=${UPSTREAM_PROXY_USER:-}
+      - UPSTREAM_PROXY_PASS=${UPSTREAM_PROXY_PASS:-}
     volumes:
-      - ./conf/squid.conf.template:/squid.conf.template:ro
-      - ./conf/healthcheck.sh:/healthcheck.sh:ro
+      # ':z' relabels the bind mounts for SELinux hosts (no-op elsewhere).
+      - ./conf/squid.conf.template:/squid.conf.template:ro,z
+      - ./conf/healthcheck.sh:/healthcheck.sh:ro,z
     # Fill the proxy into the config from .env, then start squid with it.
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
+        case "$$UPSTREAM_PROXY_HOST" in
+          *:*) echo "ERROR: UPSTREAM_PROXY_HOST must be a bare host with NO port (put the port in UPSTREAM_PROXY_PORT). Got: $$UPSTREAM_PROXY_HOST" >&2; exit 1 ;;
+        esac
+        LOGIN=""
+        [ -n "$$UPSTREAM_PROXY_USER" ] && LOGIN="login=$$UPSTREAM_PROXY_USER:$$UPSTREAM_PROXY_PASS"
+        # escape sed-special chars so credentials containing \ & | substitute literally
+        LOGIN=$(printf '%s' "$$LOGIN" | sed 's/[\\&|]/\\&/g')
         sed -e "s|__PROXY_HOST__|$$UPSTREAM_PROXY_HOST|g" \
             -e "s|__PROXY_PORT__|$$UPSTREAM_PROXY_PORT|g" \
+            -e "s|__PROXY_LOGIN__|$$LOGIN|g" \
             /squid.conf.template > /tmp/squid.conf
         exec entrypoint.sh -f /tmp/squid.conf -NYC
     # UNHEALTHY if the parent proxy stops serving (downloads still work via the

@@ -21,8 +21,11 @@ http_access allow all
 # ── Listener: accel/vhost accepts lancache's origin-form requests ──
 http_port 127.0.0.1:3129 accel vhost
 
-# ── Upstream parent proxy (filled from .env: UPSTREAM_PROXY_HOST/PORT) ──
-cache_peer __PROXY_HOST__ parent __PROXY_PORT__ 0 no-query default
+# ── Upstream parent proxy (filled from .env at container start) ──
+# __PROXY_LOGIN__ becomes "login=user:pass" iff UPSTREAM_PROXY_USER is set in
+# .env, otherwise empty. Squid's cache_peer login= is HTTP Basic only — NTLM /
+# Kerberos parent proxies are not supported.
+cache_peer __PROXY_HOST__ parent __PROXY_PORT__ 0 no-query default __PROXY_LOGIN__
 
 # Force every request through the parent. (Fallback-to-direct is handled one
 # layer up, in nginx — see conf/30_primary_proxy.conf — so a dead parent never
