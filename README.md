@@ -46,7 +46,7 @@ Insert a tiny **Squid relay** between lancache and the proxy:
 - Squid runs in **accelerator (`accel vhost`) mode**, which *accepts* the origin-form requests nginx sends (using the `Host` header to reconstruct the URL).
 - A Squid **`cache_peer ... parent`** then *re-emits* those requests in absolute-form to your upstream proxy.
 
-Two small config files do the rest:
+These config files do the rest:
 
 | File | What it does |
 |---|---|
@@ -94,7 +94,7 @@ docker compose up -d
 
 Then point a client's **DNS** at `LANCACHE_IP` (per-device, or network-wide via your router/DHCP) and start a game download.
 
-> **Updating / restarting:** always apply changes with `docker compose up -d` (it recreates the whole stack in the right order). The `lancache-dns` and `lancache-proxy-relay` sidecars share lancache's network namespace, so if you ever recreate **only** the lancache container (`docker compose up -d lancache`, an image-only update, or a manual `docker rm`/`run`), its netns dies and the two sidecars are left attached to it and won't self-heal. Fix with `docker restart lancache-dns lancache-proxy-relay`.
+> **Updating / restarting:** always apply changes with `docker compose up -d` (it recreates the whole stack in the right order). The `lancache-dns` and `lancache-proxy-relay` sidecars share lancache's network namespace, so if you ever recreate **only** the lancache container (`docker compose up -d lancache`, an image-only update, or a manual `docker rm`/`run`), its netns dies and the two sidecars are left attached to it and won't self-heal. The bundled [watchdog](#self-healing-watchdog-optional) (on by default) detects this and restarts them within ~60s; if you removed it, fix it manually with `docker restart lancache-dns lancache-proxy-relay`.
 
 ---
 
@@ -251,6 +251,8 @@ docker compose up -d --remove-orphans   # --remove-orphans removes the now-delet
 
 Removing the override mount re-exposes lancache's stock upstream config, fully reverting to direct CDN fetches. Or `docker compose down` to stop everything.
 
+If you keep the `watchdog`, also drop `lancache-proxy-relay` from `WATCHDOG_CONTAINERS` (it defaults to watching it) so it doesn't keep alerting that the relay is missing.
+
 ---
 
 ## Troubleshooting
@@ -262,7 +264,7 @@ Removing the override mount re-exposes lancache's stock upstream config, fully r
 | Relay UNHEALTHY + log `WARNING: DNS lookup for '…' failed` | The relay can't resolve `UPSTREAM_PROXY_HOST`. It uses Docker's resolver, not your ISP's — put the proxy's **IP address** in `UPSTREAM_PROXY_HOST`. |
 | Relay won't start: `UPSTREAM_PROXY_HOST must be a bare host` | You put a port in the host. Move it to `UPSTREAM_PROXY_PORT` (no colon in the host). |
 | No `Via:` from your proxy on a MISS | The object was a lancache HIT (already cached) — try a fresh path. Or the relay fell back to direct (proxy down). |
-| DNS / proxy stopped after touching lancache | You recreated only the lancache container; its shared netns died. Run `docker restart lancache-dns lancache-proxy-relay` (or `docker compose up -d` on the whole stack). |
+| DNS / proxy stopped after touching lancache | You recreated only the lancache container; its shared netns died. The [watchdog](#self-healing-watchdog-optional) auto-recovers this within ~60s; if it's disabled, run `docker restart lancache-dns lancache-proxy-relay` (or `docker compose up -d` on the whole stack). |
 | Container won't start on Fedora/RHEL/Rocky/Alma | SELinux relabel. The `:z` flags cover the config mounts; add `:z`/`:Z` to the cache/log/data mounts too, or relabel with `chcon -Rt container_file_t <dir>`. |
 | `port is already allocated` (53/80/443) | Something else owns the port. Free it or use the [macvlan](#advanced-dedicated-ip-macvlan) approach. |
 | Relay logs `Detected DEAD Parent` then `REVIVED` at startup | Normal — Squid's initial probe; it revives once it reaches the parent. |
