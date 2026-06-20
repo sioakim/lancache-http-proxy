@@ -158,7 +158,10 @@ It's included in `docker-compose.yml` and on by default. To wire up alerts, set 
 PUSHOVER_APP_TOKEN=...     # phone push via Pushover
 PUSHOVER_USER_KEY=...
 WATCHDOG_WEBHOOK_URL=...   # or a Discord-style webhook (receives {"content":"..."})
+WATCHDOG_DNS=1.1.1.1       # resolver for alerts (default) — see below
 ```
+
+The watchdog resolves its alert endpoints via `WATCHDOG_DNS` (default `1.1.1.1`), **independent of the cache**. This matters because if your host/network points DNS at the cache and the *cache* is what's down, the watchdog would otherwise be unable to resolve `api.pushover.net` to *tell* you. (Self-healing never needs DNS — it drives Docker over the socket.)
 
 Watch it: `docker logs -f lancache-watchdog`. Don't want it? Delete the `watchdog` service from `docker-compose.yml`.
 

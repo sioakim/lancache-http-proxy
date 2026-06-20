@@ -101,14 +101,20 @@ services:
     image: docker:cli
     container_name: lancache-watchdog
     restart: unless-stopped
+    # Resolve alert endpoints via public DNS, independent of the cache — so the
+    # watchdog can still reach Pushover / your webhook even when the cache (your
+    # normal resolver) is the thing that's down. Healing itself needs no DNS;
+    # it talks to Docker over the socket.
+    dns: ${WATCHDOG_DNS:-1.1.1.1}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./conf/watchdog.sh:/watchdog.sh:ro
       - ${CACHE_ROOT:-./data}/watchdog-state:/state
     environment:
-      - WATCHDOG_CONTAINERS=lancache lancache-dns lancache-proxy-relay
-      - WATCHDOG_INTERVAL=60
+      # Alerts — set in .env; all blank = log-only (still self-heals).
       - PUSHOVER_APP_TOKEN=${PUSHOVER_APP_TOKEN:-}
       - PUSHOVER_USER_KEY=${PUSHOVER_USER_KEY:-}
       - WATCHDOG_WEBHOOK_URL=${WATCHDOG_WEBHOOK_URL:-}
+      # Containers to watch (first = netns owner); override only if you renamed them.
+      - WATCHDOG_CONTAINERS=${WATCHDOG_CONTAINERS:-lancache lancache-dns lancache-proxy-relay}
     entrypoint: ["/bin/sh", "/watchdog.sh"]
