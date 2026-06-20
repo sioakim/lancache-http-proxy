@@ -146,6 +146,26 @@ Cache HITs (served from disk) never touch the upstream path at all.
 
 ---
 
+## Self-healing watchdog (optional)
+
+There's one failure the per-container `restart: unless-stopped` policy **cannot** fix: `lancache-dns` and `proxy-relay` join lancache's network namespace (`network_mode: service:lancache`). When the **lancache container is recreated** (image update, host reboot, manual recreate), the two sidecars are orphaned and **exit** with `cannot join network of a non running container`. Because they're *stopped* (not "unhealthy"), neither `restart: unless-stopped` nor autoheal-style tools bring them back — DNS and proxy routing silently stay dead until you notice.
+
+The bundled **`watchdog`** service fixes this. It runs in its *own* network namespace (so it survives a lancache recreate), checks the stack every 60s, restarts any container that's down — a fresh start re-joins lancache's current netns — and **alerts you** on down / auto-heal / recovery (and a high-priority alert if a restart fails).
+
+It's included in `docker-compose.yml` and on by default. To wire up alerts, set any of these in `.env` (leave them blank to run log-only — it still self-heals):
+
+```ini
+PUSHOVER_APP_TOKEN=...     # phone push via Pushover
+PUSHOVER_USER_KEY=...
+WATCHDOG_WEBHOOK_URL=...   # or a Discord-style webhook (receives {"content":"..."})
+```
+
+Watch it: `docker logs -f lancache-watchdog`. Don't want it? Delete the `watchdog` service from `docker-compose.yml`.
+
+> **Heads-up:** the watchdog mounts the Docker socket (`/var/run/docker.sock`) so it can restart containers — that's effectively host-root access. It's a standard pattern for this kind of tool, but only run it if you're comfortable with that.
+
+---
+
 ## Configuration reference
 
 ### Your upstream proxy — `.env`

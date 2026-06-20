@@ -88,3 +88,27 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # OPTIONAL self-healing watchdog. lancache-dns and proxy-relay share lancache's
+  # netns; when lancache is RECREATED they get orphaned and EXIT, and
+  # `restart: unless-stopped` can't recover them (they're stopped, not
+  # "unhealthy"). This watchdog runs in its OWN netns (so it survives a lancache
+  # recreate), restarts any down container, and alerts you. Notifications are
+  # configured in .env (Pushover and/or a webhook); with none set it just logs.
+  # NOTE: it mounts the Docker socket to restart containers — that's privileged
+  # access. Delete this service if you don't want a watchdog.
+  watchdog:
+    image: docker:cli
+    container_name: lancache-watchdog
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./conf/watchdog.sh:/watchdog.sh:ro
+      - ${CACHE_ROOT:-./data}/watchdog-state:/state
+    environment:
+      - WATCHDOG_CONTAINERS=lancache lancache-dns lancache-proxy-relay
+      - WATCHDOG_INTERVAL=60
+      - PUSHOVER_APP_TOKEN=${PUSHOVER_APP_TOKEN:-}
+      - PUSHOVER_USER_KEY=${PUSHOVER_USER_KEY:-}
+      - WATCHDOG_WEBHOOK_URL=${WATCHDOG_WEBHOOK_URL:-}
+    entrypoint: ["/bin/sh", "/watchdog.sh"]
