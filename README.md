@@ -223,7 +223,7 @@ If the host already uses 80/443/53 (e.g. a NAS), put the stack on its own LAN IP
 networks:
   lan:
     driver: macvlan
-    driver_opts: { parent: eth0 }     # your LAN interface / bridge
+    driver_opts: { parent: eth0 }     # a PHYSICAL NIC — not a bridge (see warning below)
     ipam:
       config:
         - subnet: 192.168.1.0/24
@@ -238,6 +238,15 @@ services:
 ```
 
 Set `LANCACHE_IP` to that address. Note: a host can't reach its own macvlan containers — test from another LAN machine.
+
+> **⚠️ Don't use a Linux _bridge_ as the macvlan `parent`.** If `parent` is a bridge
+> (`br0`, a Proxmox `vmbrN`, a NAS "virtual switch", …) instead of a physical NIC,
+> container traffic traverses `br_netfilter`, whose conntrack-confirm path can race
+> under sustained download load and **soft-lock the kernel → host hang/reboot**. Use a
+> **physical NIC** as the parent. If the LAN only reaches the host through a bridge,
+> prefer your platform's _managed_ container network instead (e.g. QNAP Container
+> Station's `qnet` driver), which attaches without the bridge-netfilter path — and
+> load-test before relying on it.
 
 ---
 
@@ -269,6 +278,7 @@ If you keep the `watchdog`, also drop `lancache-proxy-relay` from `WATCHDOG_CONT
 | `port is already allocated` (53/80/443) | Something else owns the port. Free it or use the [macvlan](#advanced-dedicated-ip-macvlan) approach. |
 | Relay logs `Detected DEAD Parent` then `REVIVED` at startup | Normal — Squid's initial probe; it revives once it reaches the parent. |
 | Proxy is slower than direct | Your ISP proxy may be poorly provisioned, or your direct path is already fine. Run the A/B above; if it doesn't help, disable it. |
+| Host hangs / soft-locks / reboots under heavy download load (macvlan) | Your macvlan `parent` is a **Linux bridge** → `br_netfilter` conntrack race. Use a physical-NIC parent, or a managed network (see [the macvlan caveat](#advanced-dedicated-ip-macvlan)). |
 
 ---
 
